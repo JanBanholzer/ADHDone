@@ -1,0 +1,8 @@
+# Supabase CLI (local)
+backend/supabase/.branches
+backend/supabase/.temp
+
+# Env (never commit secrets)
+.env
+.env.*
+!.env.example
