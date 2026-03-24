@@ -1,11 +1,15 @@
-import OpenAI from "openai";
-import type { ChatCompletionMessageParam, ChatCompletionTool } from "openai/resources/chat/completions";
+import Anthropic from "@anthropic-ai/sdk";
 import * as api from "./api";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-export const MODEL = process.env.OPENAI_MODEL ?? "gpt-4o";
+const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+export const MODEL =
+  process.env.ANTHROPIC_MODEL ?? "claude-opus-4-5";
 
-export type Message = ChatCompletionMessageParam;
+// Simple conversation message type (used in bot.ts history)
+export interface Message {
+  role: "user" | "assistant";
+  content: string;
+}
 
 const SYSTEM_PROMPT = `You are ADHDone, a personal productivity assistant inspired by monastic and Franciscan discipline.
 
@@ -27,339 +31,283 @@ CRITICAL RULES — NEVER violate these:
 6. After any database write, confirm briefly what was saved.
 7. If unsure of a task's ID, call get_tasks or get_errands first to find it.`;
 
-const TOOLS: ChatCompletionTool[] = [
+const TOOLS: Anthropic.Tool[] = [
   {
-    type: "function",
-    function: {
-      name: "get_dashboard",
-      description:
-        "Get full current status: today's tasks/errands, overdue items, active missions/projects/quests, due reminders, calendar events.",
-      parameters: { type: "object", properties: {} },
+    name: "get_dashboard",
+    description:
+      "Get full current status: today's tasks/errands, overdue items, active missions/projects/quests, due reminders, calendar events.",
+    input_schema: { type: "object" as const, properties: {} },
+  },
+  {
+    name: "get_tasks",
+    description: "Query tasks with optional filters.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        status: {
+          type: "string",
+          enum: ["planned", "done", "skipped", "aborted"],
+        },
+        due_date: { type: "string", description: "YYYY-MM-DD" },
+        quest_id: { type: "string" },
+      },
     },
   },
   {
-    type: "function",
-    function: {
-      name: "get_tasks",
-      description: "Query tasks with optional filters.",
-      parameters: {
-        type: "object",
-        properties: {
-          status: {
-            type: "string",
-            enum: ["planned", "done", "skipped", "aborted"],
-          },
-          due_date: { type: "string", description: "YYYY-MM-DD" },
-          quest_id: { type: "string" },
+    name: "get_errands",
+    description: "Query standalone errands with optional filters.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        status: {
+          type: "string",
+          enum: ["planned", "done", "skipped", "aborted"],
+        },
+        due_date: { type: "string" },
+      },
+    },
+  },
+  {
+    name: "get_quests",
+    description: "Query quests with optional filters.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        status: {
+          type: "string",
+          enum: ["planned", "active", "completed", "aborted"],
+        },
+        project_id: { type: "string" },
+      },
+    },
+  },
+  {
+    name: "get_projects",
+    description: "Query projects with optional filters.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        status: {
+          type: "string",
+          enum: ["planned", "active", "completed", "aborted"],
+        },
+        mission_id: { type: "string" },
+      },
+    },
+  },
+  {
+    name: "get_missions",
+    description: "Query missions with optional status filter.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        status: {
+          type: "string",
+          enum: ["active", "accomplished", "aborted"],
         },
       },
     },
   },
   {
-    type: "function",
-    function: {
-      name: "get_errands",
-      description: "Query standalone errands with optional filters.",
-      parameters: {
-        type: "object",
-        properties: {
-          status: {
-            type: "string",
-            enum: ["planned", "done", "skipped", "aborted"],
-          },
-          due_date: { type: "string" },
-        },
+    name: "create_task",
+    description:
+      "Create a new task. Tasks must be linked to a quest. Use get_quests first if you don't have a quest_id.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        title: { type: "string" },
+        quest_id: { type: "string" },
+        due_date: { type: "string", description: "YYYY-MM-DD" },
+        description: { type: "string" },
+        notes: { type: "string" },
+        estimate_minutes: { type: "number" },
       },
+      required: ["title", "quest_id", "due_date"],
     },
   },
   {
-    type: "function",
-    function: {
-      name: "get_quests",
-      description: "Query quests with optional filters.",
-      parameters: {
-        type: "object",
-        properties: {
-          status: {
-            type: "string",
-            enum: ["planned", "active", "completed", "aborted"],
-          },
-          project_id: { type: "string" },
+    name: "update_task",
+    description:
+      "Update a task — mark done/skipped/aborted, change due date, add notes, etc.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        id: { type: "string" },
+        status: {
+          type: "string",
+          enum: ["planned", "done", "skipped", "aborted"],
         },
+        title: { type: "string" },
+        due_date: { type: "string" },
+        notes: { type: "string" },
+        estimate_minutes: { type: "number" },
       },
+      required: ["id"],
     },
   },
   {
-    type: "function",
-    function: {
-      name: "get_projects",
-      description: "Query projects with optional filters.",
-      parameters: {
-        type: "object",
-        properties: {
-          status: {
-            type: "string",
-            enum: ["planned", "active", "completed", "aborted"],
-          },
-          mission_id: { type: "string" },
-        },
+    name: "create_errand",
+    description:
+      "Create a standalone errand (not linked to a quest). Use for one-off day items.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        title: { type: "string" },
+        due_date: { type: "string", description: "YYYY-MM-DD" },
+        description: { type: "string" },
+        notes: { type: "string" },
+        estimate_minutes: { type: "number" },
       },
+      required: ["title", "due_date"],
     },
   },
   {
-    type: "function",
-    function: {
-      name: "get_missions",
-      description: "Query missions with optional status filter.",
-      parameters: {
-        type: "object",
-        properties: {
-          status: {
-            type: "string",
-            enum: ["active", "accomplished", "aborted"],
-          },
+    name: "update_errand",
+    description:
+      "Update an errand — mark done/skipped/aborted or change details.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        id: { type: "string" },
+        status: {
+          type: "string",
+          enum: ["planned", "done", "skipped", "aborted"],
         },
+        title: { type: "string" },
+        due_date: { type: "string" },
+        notes: { type: "string" },
       },
+      required: ["id"],
     },
   },
   {
-    type: "function",
-    function: {
-      name: "create_task",
-      description:
-        "Create a new task. Tasks must be linked to a quest. Use get_quests first if you don't have a quest_id.",
-      parameters: {
-        type: "object",
-        properties: {
-          title: { type: "string" },
-          quest_id: { type: "string" },
-          due_date: { type: "string", description: "YYYY-MM-DD" },
-          description: { type: "string" },
-          notes: { type: "string" },
-          estimate_minutes: { type: "number" },
-        },
-        required: ["title", "quest_id", "due_date"],
+    name: "create_quest",
+    description: "Create a new quest under a project.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        title: { type: "string" },
+        project_id: { type: "string" },
+        description: { type: "string" },
+        target_date: { type: "string", description: "YYYY-MM-DD" },
       },
+      required: ["title", "project_id"],
     },
   },
   {
-    type: "function",
-    function: {
-      name: "update_task",
-      description:
-        "Update a task — mark done/skipped/aborted, change due date, add notes, etc.",
-      parameters: {
-        type: "object",
-        properties: {
-          id: { type: "string" },
-          status: {
-            type: "string",
-            enum: ["planned", "done", "skipped", "aborted"],
-          },
-          title: { type: "string" },
-          due_date: { type: "string" },
-          notes: { type: "string" },
-          estimate_minutes: { type: "number" },
+    name: "update_quest",
+    description: "Update a quest status or details.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        id: { type: "string" },
+        status: {
+          type: "string",
+          enum: ["planned", "active", "completed", "aborted"],
         },
-        required: ["id"],
+        title: { type: "string" },
+        target_date: { type: "string" },
       },
+      required: ["id"],
     },
   },
   {
-    type: "function",
-    function: {
-      name: "create_errand",
-      description:
-        "Create a standalone errand (not linked to a quest). Use for one-off day items.",
-      parameters: {
-        type: "object",
-        properties: {
-          title: { type: "string" },
-          due_date: { type: "string", description: "YYYY-MM-DD" },
-          description: { type: "string" },
-          notes: { type: "string" },
-          estimate_minutes: { type: "number" },
-        },
-        required: ["title", "due_date"],
+    name: "create_project",
+    description: "Create a new project under a mission.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        title: { type: "string" },
+        mission_id: { type: "string" },
+        description: { type: "string" },
+        target_date: { type: "string" },
       },
+      required: ["title", "mission_id"],
     },
   },
   {
-    type: "function",
-    function: {
-      name: "update_errand",
-      description: "Update an errand — mark done/skipped/aborted or change details.",
-      parameters: {
-        type: "object",
-        properties: {
-          id: { type: "string" },
-          status: {
-            type: "string",
-            enum: ["planned", "done", "skipped", "aborted"],
-          },
-          title: { type: "string" },
-          due_date: { type: "string" },
-          notes: { type: "string" },
+    name: "update_project",
+    description: "Update a project status or details.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        id: { type: "string" },
+        status: {
+          type: "string",
+          enum: ["planned", "active", "completed", "aborted"],
         },
-        required: ["id"],
+        title: { type: "string" },
+        target_date: { type: "string" },
       },
+      required: ["id"],
     },
   },
   {
-    type: "function",
-    function: {
-      name: "create_quest",
-      description: "Create a new quest under a project.",
-      parameters: {
-        type: "object",
-        properties: {
-          title: { type: "string" },
-          project_id: { type: "string" },
-          description: { type: "string" },
-          target_date: { type: "string", description: "YYYY-MM-DD" },
-        },
-        required: ["title", "project_id"],
+    name: "create_mission",
+    description: "Create a new top-level mission.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        title: { type: "string" },
+        description: { type: "string" },
       },
+      required: ["title"],
     },
   },
   {
-    type: "function",
-    function: {
-      name: "update_quest",
-      description: "Update a quest status or details.",
-      parameters: {
-        type: "object",
-        properties: {
-          id: { type: "string" },
-          status: {
-            type: "string",
-            enum: ["planned", "active", "completed", "aborted"],
-          },
-          title: { type: "string" },
-          target_date: { type: "string" },
+    name: "update_mission",
+    description: "Update a mission status or details.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        id: { type: "string" },
+        status: {
+          type: "string",
+          enum: ["active", "accomplished", "aborted"],
         },
-        required: ["id"],
+        title: { type: "string" },
+        description: { type: "string" },
       },
+      required: ["id"],
     },
   },
   {
-    type: "function",
-    function: {
-      name: "create_project",
-      description: "Create a new project under a mission.",
-      parameters: {
-        type: "object",
-        properties: {
-          title: { type: "string" },
-          mission_id: { type: "string" },
-          description: { type: "string" },
-          target_date: { type: "string" },
-        },
-        required: ["title", "mission_id"],
+    name: "create_reminder",
+    description:
+      "Schedule a reminder. Omit recurring_interval_days for one-shot.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        name: { type: "string" },
+        remind_at: { type: "string", description: "ISO 8601 UTC timestamp" },
+        description: { type: "string" },
+        recurring_interval_days: { type: "number" },
       },
+      required: ["name", "remind_at"],
     },
   },
   {
-    type: "function",
-    function: {
-      name: "update_project",
-      description: "Update a project status or details.",
-      parameters: {
-        type: "object",
-        properties: {
-          id: { type: "string" },
-          status: {
-            type: "string",
-            enum: ["planned", "active", "completed", "aborted"],
-          },
-          title: { type: "string" },
-          target_date: { type: "string" },
-        },
-        required: ["id"],
+    name: "save_resource",
+    description:
+      "Save a note, preference, or knowledge item to the persistent resource database.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        title: { type: "string" },
+        content: { type: "string" },
+        summary: { type: "string" },
+        tags: { type: "array", items: { type: "string" } },
       },
+      required: ["title", "content"],
     },
   },
   {
-    type: "function",
-    function: {
-      name: "create_mission",
-      description: "Create a new top-level mission.",
-      parameters: {
-        type: "object",
-        properties: {
-          title: { type: "string" },
-          description: { type: "string" },
-        },
-        required: ["title"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "update_mission",
-      description: "Update a mission status or details.",
-      parameters: {
-        type: "object",
-        properties: {
-          id: { type: "string" },
-          status: {
-            type: "string",
-            enum: ["active", "accomplished", "aborted"],
-          },
-          title: { type: "string" },
-          description: { type: "string" },
-        },
-        required: ["id"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "create_reminder",
-      description:
-        "Schedule a reminder. Omit recurring_interval_days for one-shot.",
-      parameters: {
-        type: "object",
-        properties: {
-          name: { type: "string" },
-          remind_at: { type: "string", description: "ISO 8601 UTC timestamp" },
-          description: { type: "string" },
-          recurring_interval_days: { type: "number" },
-        },
-        required: ["name", "remind_at"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "save_resource",
-      description:
-        "Save a note, preference, or knowledge item to the persistent resource database.",
-      parameters: {
-        type: "object",
-        properties: {
-          title: { type: "string" },
-          content: { type: "string" },
-          summary: { type: "string" },
-          tags: { type: "array", items: { type: "string" } },
-        },
-        required: ["title", "content"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "search_resources",
-      description: "Search the persistent knowledge base.",
-      parameters: {
-        type: "object",
-        properties: { query: { type: "string" } },
-        required: ["query"],
-      },
+    name: "search_resources",
+    description: "Search the persistent knowledge base.",
+    input_schema: {
+      type: "object" as const,
+      properties: { query: { type: "string" } },
+      required: ["query"],
     },
   },
 ];
@@ -370,7 +318,6 @@ async function executeTool(
 ): Promise<string> {
   try {
     let result: unknown;
-
     switch (name) {
       case "get_dashboard":
         result = await api.getDashboard();
@@ -473,11 +420,9 @@ async function executeTool(
       default:
         return `Unknown tool: ${name}`;
     }
-
     return JSON.stringify(result ?? "ok");
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return `Error: ${msg}`;
+    return `Error: ${err instanceof Error ? err.message : String(err)}`;
   }
 }
 
@@ -487,41 +432,50 @@ export async function runAgent(
   messages: Message[],
   extraContext?: string
 ): Promise<string> {
-  const sys: Message = {
-    role: "system",
-    content:
-      SYSTEM_PROMPT + (extraContext ? `\n\n${extraContext}` : ""),
-  };
+  const system =
+    SYSTEM_PROMPT + (extraContext ? `\n\n${extraContext}` : "");
 
-  let history: Message[] = [sys, ...messages];
+  let history: Anthropic.MessageParam[] = messages.map((m) => ({
+    role: m.role,
+    content: m.content,
+  }));
 
   for (let i = 0; i < 12; i++) {
-    const response = await openai.chat.completions.create({
+    const response = await client.messages.create({
       model: MODEL,
-      messages: history,
+      max_tokens: 4096,
+      system,
       tools: TOOLS,
-      tool_choice: "auto",
+      messages: history,
     });
 
-    const msg = response.choices[0].message;
-    history.push(msg as Message);
+    const toolUseBlocks = response.content.filter(
+      (b): b is Anthropic.ToolUseBlock => b.type === "tool_use"
+    );
 
-    if (!msg.tool_calls || msg.tool_calls.length === 0) {
-      return msg.content ?? "";
+    if (toolUseBlocks.length === 0 || response.stop_reason === "end_turn") {
+      const textBlock = response.content.find(
+        (b): b is Anthropic.TextBlock => b.type === "text"
+      );
+      return textBlock?.text ?? "";
     }
 
-    const results: Message[] = await Promise.all(
-      msg.tool_calls.map(async (tc) => ({
-        role: "tool" as const,
-        tool_call_id: tc.id,
+    // Add assistant turn (contains both text and tool_use blocks)
+    history.push({ role: "assistant", content: response.content });
+
+    // Execute tools in parallel and add results
+    const toolResults: Anthropic.ToolResultBlockParam[] = await Promise.all(
+      toolUseBlocks.map(async (block) => ({
+        type: "tool_result" as const,
+        tool_use_id: block.id,
         content: await executeTool(
-          tc.function.name,
-          JSON.parse(tc.function.arguments) as Record<string, unknown>
+          block.name,
+          block.input as Record<string, unknown>
         ),
       }))
     );
 
-    history.push(...results);
+    history.push({ role: "user", content: toolResults });
   }
 
   return "I hit a processing limit. Please try a simpler request.";
@@ -545,16 +499,22 @@ export async function generateBriefing(
   if (combinedWith) {
     userContent +=
       `\n\nThis briefing also includes the ${combinedWith.title}. Integrate it naturally:\n` +
-      `TEMPLATE:\n${combinedWith.template}\n\nDATA:\n${JSON.stringify(combinedWith.data, null, 2)}`;
+      `TEMPLATE:\n${combinedWith.template}\n\nDATA:\n${JSON.stringify(
+        combinedWith.data,
+        null,
+        2
+      )}`;
   }
 
-  const response = await openai.chat.completions.create({
+  const response = await client.messages.create({
     model: MODEL,
-    messages: [
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: userContent },
-    ],
+    max_tokens: 8096,
+    system: SYSTEM_PROMPT,
+    messages: [{ role: "user", content: userContent }],
   });
 
-  return response.choices[0].message.content ?? "";
+  const textBlock = response.content.find(
+    (b): b is Anthropic.TextBlock => b.type === "text"
+  );
+  return textBlock?.text ?? "";
 }
