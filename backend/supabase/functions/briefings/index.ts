@@ -97,6 +97,82 @@ function flattenObservances(rows: any[]) {
   }));
 }
 
+function normalizeTitle(v: string): string {
+  return v.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function isSameDay(aIso: string, bDate: string): boolean {
+  return aIso.slice(0, 10) === bDate;
+}
+
+function titlesLikelyMatch(a: string, b: string): boolean {
+  const na = normalizeTitle(a);
+  const nb = normalizeTitle(b);
+  if (!na || !nb) return false;
+  return na === nb || na.includes(nb) || nb.includes(na);
+}
+
+// OpenClaw should never rely on memory for conversion checks.
+// This annotates calendar events with whether corresponding tasks/errands already exist.
+function addCalendarTaskMatches(payload: Record<string, unknown>): Record<string, unknown> {
+  const calendarEvents = (payload.calendar_events as Array<Record<string, unknown>> | undefined) ?? [];
+  if (calendarEvents.length === 0) return payload;
+
+  const taskArrays = [
+    (payload.tasks_today as Array<Record<string, unknown>> | undefined) ?? [],
+    (payload.tasks_this_week as Array<Record<string, unknown>> | undefined) ?? [],
+    (payload.tasks_this_month as Array<Record<string, unknown>> | undefined) ?? [],
+    (payload.tasks_tomorrow as Array<Record<string, unknown>> | undefined) ?? [],
+    (payload.tasks_next_week as Array<Record<string, unknown>> | undefined) ?? [],
+    (payload.tasks_next_month as Array<Record<string, unknown>> | undefined) ?? [],
+  ].flat();
+  const errandArrays = [
+    (payload.errands_today as Array<Record<string, unknown>> | undefined) ?? [],
+    (payload.errands_this_week as Array<Record<string, unknown>> | undefined) ?? [],
+    (payload.errands_next_week as Array<Record<string, unknown>> | undefined) ?? [],
+    (payload.errands_next_month as Array<Record<string, unknown>> | undefined) ?? [],
+  ].flat();
+
+  const matches = calendarEvents.map((ev) => {
+    const eventTitle = String(ev.title ?? "");
+    const eventDate = String(ev.start_at ?? "").slice(0, 10);
+
+    const matchedTasks = taskArrays.filter((t) =>
+      isSameDay(String(t.due_date ?? ""), eventDate) &&
+      titlesLikelyMatch(String(t.title ?? ""), eventTitle)
+    );
+    const matchedErrands = errandArrays.filter((e) =>
+      isSameDay(String(e.due_date ?? ""), eventDate) &&
+      titlesLikelyMatch(String(e.title ?? ""), eventTitle)
+    );
+
+    return {
+      calendar_event_id: ev.id,
+      calendar_event_title: eventTitle,
+      calendar_event_start_at: ev.start_at,
+      has_corresponding_task_or_errand:
+        matchedTasks.length > 0 || matchedErrands.length > 0,
+      matching_tasks: matchedTasks.map((t) => ({
+        id: t.id,
+        title: t.title,
+        due_date: t.due_date,
+        status: t.status,
+      })),
+      matching_errands: matchedErrands.map((e) => ({
+        id: e.id,
+        title: e.title,
+        due_date: e.due_date,
+        status: e.status,
+      })),
+    };
+  });
+
+  return {
+    ...payload,
+    calendar_event_task_matches: matches,
+  };
+}
+
 // ── Data fetchers ───────────────────────────────────────────
 
 async function fetchDailyBriefingData(db: DB, today: string) {
@@ -649,7 +725,7 @@ Deno.serve(async (req) => {
     if (tplErr) return error(tplErr.message, 404);
 
     // Fetch live data
-    const data = await fetcher(db, today);
+    const data = addCalendarTaskMatches(await fetcher(db, today) as Record<string, unknown>);
 
     // Check combination rules from DB
     const { data: rules } = await db
@@ -676,7 +752,7 @@ Deno.serve(async (req) => {
           type: includeId,
           title: includeTemplate.data?.title,
           template: includeTemplate.data?.template,
-          data: includeData,
+          data: addCalendarTaskMatches(includeData as Record<string, unknown>),
         };
       }
     }
