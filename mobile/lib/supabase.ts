@@ -5,6 +5,6 @@ const SUPABASE_URL = "https://qvbnkblzytedxueunaem.supabase.co";
 
 // The anon key is safe for client-side use.
 // Replace with your project's anon key from the Supabase dashboard.
-const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";
+const SUPABASE_ANON_KEY = "sb_secret_W4tLZm8yGxTuo1nqx_INPw_sA8aVg1k";
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);

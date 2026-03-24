@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import type { Mission, Project, Quest, Task, Errand } from "./types";
+import type { Mission, Project, Quest, Task, Errand, CalendarEvent } from "./types";
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);
@@ -299,4 +299,20 @@ export async function fetchOverdue() {
     tasks: (tasks.data ?? []) as Task[],
     errands: (errands.data ?? []) as Errand[],
   };
+}
+
+// ── Calendar events ─────────────────────────────────────────
+
+export async function fetchCalendarEvents(date: string): Promise<CalendarEvent[]> {
+  const dayStart = date + "T00:00:00Z";
+  const dayEnd = date + "T23:59:59Z";
+
+  const { data, error } = await supabase
+    .from("calendar_events")
+    .select("*")
+    .or(`and(start_at.gte.${dayStart},start_at.lte.${dayEnd}),and(end_at.gte.${dayStart},end_at.lte.${dayEnd}),and(start_at.lte.${dayStart},end_at.gte.${dayEnd})`)
+    .order("start_at");
+
+  if (error) throw error;
+  return (data ?? []) as CalendarEvent[];
 }

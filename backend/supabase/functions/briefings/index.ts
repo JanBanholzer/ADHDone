@@ -100,7 +100,10 @@ function flattenObservances(rows: any[]) {
 // ── Data fetchers ───────────────────────────────────────────
 
 async function fetchDailyBriefingData(db: DB, today: string) {
-  const [liturgical, tasks, errands, quests, projects, missions] =
+  const dayStart = today + "T00:00:00Z";
+  const dayEnd = today + "T23:59:59Z";
+  
+  const [liturgical, tasks, errands, quests, projects, missions, calendarEvents] =
     await Promise.all([
       db
         .from("liturgical_observances")
@@ -130,6 +133,11 @@ async function fetchDailyBriefingData(db: DB, today: string) {
         .in("status", ["active"])
         .order("sort_order"),
       db.from("missions").select("*").order("sort_order"),
+      db
+        .from("calendar_events")
+        .select("*")
+        .or(`and(start_at.gte.${dayStart},start_at.lte.${dayEnd}),and(end_at.gte.${dayStart},end_at.lte.${dayEnd}),and(start_at.lte.${dayStart},end_at.gte.${dayEnd})`)
+        .order("start_at"),
     ]);
 
   return {
@@ -137,6 +145,7 @@ async function fetchDailyBriefingData(db: DB, today: string) {
     evangelizo_saint_url: evangelizoSaintUrl(today),
     evangelizo_feast_url: evangelizoFeastUrl(today),
     liturgical_events: flattenObservances(liturgical.data ?? []),
+    calendar_events: calendarEvents.data ?? [],
     tasks_today: tasks.data ?? [],
     errands_today: errands.data ?? [],
     active_quests: quests.data ?? [],
@@ -146,7 +155,10 @@ async function fetchDailyBriefingData(db: DB, today: string) {
 }
 
 async function fetchDailyExamData(db: DB, today: string) {
-  const [tasks, errands, quests, projects, missions] = await Promise.all([
+  const dayStart = today + "T00:00:00Z";
+  const dayEnd = today + "T23:59:59Z";
+  
+  const [tasks, errands, quests, projects, missions, calendarEvents] = await Promise.all([
     db
       .from("tasks")
       .select("*, quests(id, title)")
@@ -164,10 +176,16 @@ async function fetchDailyExamData(db: DB, today: string) {
       .in("status", ["active"])
       .order("sort_order"),
     db.from("missions").select("*").order("sort_order"),
+    db
+      .from("calendar_events")
+      .select("*")
+      .or(`and(start_at.gte.${dayStart},start_at.lte.${dayEnd}),and(end_at.gte.${dayStart},end_at.lte.${dayEnd}),and(start_at.lte.${dayStart},end_at.gte.${dayEnd})`)
+      .order("start_at"),
   ]);
 
   return {
     date: today,
+    calendar_events: calendarEvents.data ?? [],
     tasks_today: tasks.data ?? [],
     errands_today: errands.data ?? [],
     active_quests: quests.data ?? [],
@@ -178,7 +196,10 @@ async function fetchDailyExamData(db: DB, today: string) {
 
 async function fetchDailyDebriefData(db: DB, today: string) {
   const tomorrow = addDays(today, 1);
-  const [tasks, errands, tmrwTasks, tmrwErrands, overdueTasks, overdueErrands] =
+  const dayStart = today + "T00:00:00Z";
+  const dayEnd = today + "T23:59:59Z";
+  
+  const [tasks, errands, tmrwTasks, tmrwErrands, overdueTasks, overdueErrands, calendarEvents] =
     await Promise.all([
       db
         .from("tasks")
@@ -210,11 +231,17 @@ async function fetchDailyDebriefData(db: DB, today: string) {
         .lt("due_date", today)
         .eq("status", "planned")
         .order("due_date"),
+      db
+        .from("calendar_events")
+        .select("*")
+        .or(`and(start_at.gte.${dayStart},start_at.lte.${dayEnd}),and(end_at.gte.${dayStart},end_at.lte.${dayEnd}),and(start_at.lte.${dayStart},end_at.gte.${dayEnd})`)
+        .order("start_at"),
     ]);
 
   return {
     date: today,
     tomorrow,
+    calendar_events: calendarEvents.data ?? [],
     tasks_today: tasks.data ?? [],
     errands_today: errands.data ?? [],
     tasks_tomorrow: tmrwTasks.data ?? [],
@@ -226,7 +253,10 @@ async function fetchDailyDebriefData(db: DB, today: string) {
 
 async function fetchWeeklyBriefingData(db: DB, today: string) {
   const { start, end } = weekRange(today);
-  const [liturgical, tasks, errands, quests, projects, missions] =
+  const weekStart = start + "T00:00:00Z";
+  const weekEnd = end + "T23:59:59Z";
+  
+  const [liturgical, tasks, errands, quests, projects, missions, calendarEvents] =
     await Promise.all([
       db
         .from("liturgical_observances")
@@ -262,6 +292,12 @@ async function fetchWeeklyBriefingData(db: DB, today: string) {
         .in("status", ["active"])
         .order("sort_order"),
       db.from("missions").select("*").order("sort_order"),
+      db
+        .from("calendar_events")
+        .select("*")
+        .gte("start_at", weekStart)
+        .lte("start_at", weekEnd)
+        .order("start_at"),
     ]);
 
   return {
@@ -269,6 +305,7 @@ async function fetchWeeklyBriefingData(db: DB, today: string) {
     week_start: start,
     week_end: end,
     liturgical_events: flattenObservances(liturgical.data ?? []),
+    calendar_events: calendarEvents.data ?? [],
     tasks_this_week: tasks.data ?? [],
     errands_this_week: errands.data ?? [],
     active_quests: quests.data ?? [],
@@ -280,6 +317,9 @@ async function fetchWeeklyBriefingData(db: DB, today: string) {
 async function fetchWeeklyDebriefData(db: DB, today: string) {
   const { start, end } = weekRange(today);
   const next = nextWeekRange(today);
+  const weekStart = start + "T00:00:00Z";
+  const weekEnd = end + "T23:59:59Z";
+  
   const [
     tasks,
     errands,
@@ -290,6 +330,7 @@ async function fetchWeeklyDebriefData(db: DB, today: string) {
     nextErrands,
     overdueTasks,
     overdueErrands,
+    calendarEvents,
   ] = await Promise.all([
     db
       .from("tasks")
@@ -344,6 +385,12 @@ async function fetchWeeklyDebriefData(db: DB, today: string) {
       .lt("due_date", start)
       .eq("status", "planned")
       .order("due_date"),
+    db
+      .from("calendar_events")
+      .select("*")
+      .gte("start_at", weekStart)
+      .lte("start_at", weekEnd)
+      .order("start_at"),
   ]);
 
   return {
@@ -352,6 +399,7 @@ async function fetchWeeklyDebriefData(db: DB, today: string) {
     week_end: end,
     next_week_start: next.start,
     next_week_end: next.end,
+    calendar_events: calendarEvents.data ?? [],
     tasks_this_week: tasks.data ?? [],
     errands_this_week: errands.data ?? [],
     active_quests: quests.data ?? [],
@@ -367,7 +415,10 @@ async function fetchWeeklyDebriefData(db: DB, today: string) {
 async function fetchMonthlyBriefingData(db: DB, today: string) {
   const { start, end } = monthRange(today);
   const last = lastMonthRange(today);
-  const [liturgical, quests, projects, missions, lastCompletedTasks, lastCompletedQuests] =
+  const monthStart = start + "T00:00:00Z";
+  const monthEnd = end + "T23:59:59Z";
+  
+  const [liturgical, quests, projects, missions, lastCompletedTasks, lastCompletedQuests, calendarEvents] =
     await Promise.all([
       db
         .from("liturgical_observances")
@@ -400,6 +451,12 @@ async function fetchMonthlyBriefingData(db: DB, today: string) {
         .eq("status", "completed")
         .gte("completed_at", last.start + "T00:00:00Z")
         .lte("completed_at", last.end + "T23:59:59Z"),
+      db
+        .from("calendar_events")
+        .select("*")
+        .gte("start_at", monthStart)
+        .lte("start_at", monthEnd)
+        .order("start_at"),
     ]);
 
   return {
@@ -409,6 +466,7 @@ async function fetchMonthlyBriefingData(db: DB, today: string) {
     last_month_start: last.start,
     last_month_end: last.end,
     liturgical_events: flattenObservances(liturgical.data ?? []),
+    calendar_events: calendarEvents.data ?? [],
     active_quests: quests.data ?? [],
     active_projects: projects.data ?? [],
     missions: missions.data ?? [],
@@ -420,6 +478,9 @@ async function fetchMonthlyBriefingData(db: DB, today: string) {
 async function fetchMonthlyDebriefData(db: DB, today: string) {
   const { start, end } = monthRange(today);
   const next = nextMonthRange(today);
+  const monthStart = start + "T00:00:00Z";
+  const monthEnd = end + "T23:59:59Z";
+  
   const [
     liturgical,
     completedQuests,
@@ -430,6 +491,7 @@ async function fetchMonthlyDebriefData(db: DB, today: string) {
     monthTasks,
     nextTasks,
     nextErrands,
+    calendarEvents,
   ] = await Promise.all([
     db
       .from("liturgical_observances")
@@ -481,6 +543,12 @@ async function fetchMonthlyDebriefData(db: DB, today: string) {
       .lte("due_date", next.end)
       .in("status", ["planned"])
       .order("due_date"),
+    db
+      .from("calendar_events")
+      .select("*")
+      .gte("start_at", monthStart)
+      .lte("start_at", monthEnd)
+      .order("start_at"),
   ]);
 
   return {
@@ -490,6 +558,7 @@ async function fetchMonthlyDebriefData(db: DB, today: string) {
     next_month_start: next.start,
     next_month_end: next.end,
     liturgical_events: flattenObservances(liturgical.data ?? []),
+    calendar_events: calendarEvents.data ?? [],
     completed_quests_this_month: completedQuests.data ?? [],
     completed_projects_this_month: completedProjects.data ?? [],
     missions: missions.data ?? [],

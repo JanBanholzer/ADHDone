@@ -74,6 +74,21 @@ export interface Errand {
   updated_at: string;
 }
 
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  start_at: string;
+  end_at: string;
+  location: string;
+  notes: string;
+  calendar_name: string;
+  is_all_day: boolean;
+  source_platform: string;
+  synced_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface SectionData<T> {
   title: string;
   data: T[];
