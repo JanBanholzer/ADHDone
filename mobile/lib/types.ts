@@ -48,6 +48,7 @@ export interface Task {
   id: string;
   quest_id: string;
   title: string;
+  description: string;
   notes: string;
   status: TaskStatus;
   due_date: string;
@@ -65,6 +66,7 @@ export interface Task {
 export interface Errand {
   id: string;
   title: string;
+  description: string;
   notes: string;
   status: TaskStatus;
   due_date: string;

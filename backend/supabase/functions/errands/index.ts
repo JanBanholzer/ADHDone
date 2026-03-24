@@ -73,6 +73,9 @@ Deno.serve(async (req) => {
           .insert({
             title: body.title,
             due_date: body.due_date,
+            ...(body.description !== undefined && {
+              description: body.description,
+            }),
             ...(body.notes !== undefined && { notes: body.notes }),
             ...(body.status !== undefined && { status: body.status }),
             ...(body.estimate_minutes !== undefined && {

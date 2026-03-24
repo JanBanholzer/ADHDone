@@ -65,6 +65,7 @@ export default function QuestsScreen() {
 
   const fields: FieldDef[] = [
     { key: "title", label: "Title", placeholder: "Quest name", required: true },
+    { key: "description", label: "Description", placeholder: "Optional description" },
     ...(projectOptions.length > 0
       ? [
           {
@@ -88,6 +89,7 @@ export default function QuestsScreen() {
   const handleSubmit = async (values: Record<string, string>) => {
     await createQuest({
       title: values.title,
+      description: values.description || undefined,
       project_id: values.project_id,
       target_date: values.target_date || undefined,
     });

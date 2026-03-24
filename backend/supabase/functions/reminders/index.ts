@@ -62,6 +62,9 @@ Deno.serve(async (req) => {
           .insert({
             name: body.name,
             remind_at: body.remind_at,
+            ...(body.description !== undefined && {
+              description: body.description,
+            }),
             ...(body.recurring_interval_days !== undefined && {
               recurring_interval_days: body.recurring_interval_days,
             }),

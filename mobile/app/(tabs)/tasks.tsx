@@ -101,6 +101,7 @@ export default function TasksScreen() {
 
   const taskFields: FieldDef[] = [
     { key: "title", label: "Title", placeholder: "What needs to be done?", required: true },
+    { key: "description", label: "Description", placeholder: "Optional description" },
     { key: "due_date", label: "Due date", placeholder: "YYYY-MM-DD", required: true, type: "date" },
     ...(questOptions.length > 0
       ? [
@@ -120,6 +121,7 @@ export default function TasksScreen() {
 
   const errandFields: FieldDef[] = [
     { key: "title", label: "Title", placeholder: "What needs to be done?", required: true },
+    { key: "description", label: "Description", placeholder: "Optional description" },
     { key: "due_date", label: "Due date", placeholder: "YYYY-MM-DD", required: true, type: "date" },
     { key: "notes", label: "Notes", placeholder: "Optional notes" },
     { key: "estimate_minutes", label: "Estimate (min)", placeholder: "e.g. 30", type: "number" as const },
@@ -130,6 +132,7 @@ export default function TasksScreen() {
       await createTask({
         title: values.title,
         quest_id: values.quest_id,
+        description: values.description || undefined,
         due_date: values.due_date,
         notes: values.notes || undefined,
         estimate_minutes: values.estimate_minutes
@@ -139,6 +142,7 @@ export default function TasksScreen() {
     } else {
       await createErrand({
         title: values.title,
+        description: values.description || undefined,
         due_date: values.due_date,
         notes: values.notes || undefined,
         estimate_minutes: values.estimate_minutes

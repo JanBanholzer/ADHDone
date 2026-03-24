@@ -165,7 +165,7 @@ export async function fetchTasks(opts?: {
 
 export async function createTask(
   fields: Pick<Task, "title" | "quest_id" | "due_date"> &
-    Partial<Pick<Task, "notes" | "estimate_minutes">>
+    Partial<Pick<Task, "description" | "notes" | "estimate_minutes">>
 ): Promise<Task> {
   const { data, error } = await supabase
     .from("tasks")
@@ -220,7 +220,7 @@ export async function fetchErrands(opts?: {
 
 export async function createErrand(
   fields: Pick<Errand, "title" | "due_date"> &
-    Partial<Pick<Errand, "notes" | "estimate_minutes">>
+    Partial<Pick<Errand, "description" | "notes" | "estimate_minutes">>
 ): Promise<Errand> {
   const { data, error } = await supabase
     .from("errands")
