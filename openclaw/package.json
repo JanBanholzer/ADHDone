@@ -1,0 +1,23 @@
+{
+  "name": "adhdone-openclaw",
+  "version": "1.0.0",
+  "private": true,
+  "description": "OpenClaw worker for ADHDone — Telegram bot + scheduled briefings",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2",
+    "dotenv": "^16",
+    "grammy": "^1",
+    "node-cron": "^3",
+    "openai": "^4"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "@types/node-cron": "^3",
+    "tsx": "^4",
+    "typescript": "^5"
+  }
+}
