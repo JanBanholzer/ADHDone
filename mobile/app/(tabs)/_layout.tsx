@@ -1,6 +1,7 @@
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { Colors } from "../../constants/theme";
+import { useBadgeCounts } from "../../lib/useBadgeCounts";
 
 type IoniconsName = keyof typeof Ionicons.glyphMap;
 
@@ -14,7 +15,13 @@ function icon(name: IoniconsName, focused: boolean) {
   );
 }
 
+function badge(count: number): number | undefined {
+  return count > 0 ? count : undefined;
+}
+
 export default function TabLayout() {
+  const counts = useBadgeCounts();
+
   return (
     <Tabs
       screenOptions={{
@@ -28,14 +35,24 @@ export default function TabLayout() {
         tabBarActiveTintColor: Colors.accent,
         tabBarInactiveTintColor: Colors.textTertiary,
         tabBarLabelStyle: { fontSize: 10, fontWeight: "600" },
+        tabBarBadgeStyle: {
+          backgroundColor: Colors.danger,
+          color: Colors.textInverse,
+          fontSize: 11,
+          fontWeight: "700",
+          minWidth: 18,
+          height: 18,
+          lineHeight: 18,
+          borderRadius: 9,
+        },
       }}
     >
       <Tabs.Screen
         name="tasks"
         options={{
           title: "Tasks",
-          tabBarIcon: ({ focused }) =>
-            icon("checkmark-circle-outline", focused),
+          tabBarIcon: ({ focused }) => icon("checkmark-circle-outline", focused),
+          tabBarBadge: badge(counts.tasks),
         }}
       />
       <Tabs.Screen
@@ -43,6 +60,7 @@ export default function TabLayout() {
         options={{
           title: "Quests",
           tabBarIcon: ({ focused }) => icon("compass-outline", focused),
+          tabBarBadge: undefined,
         }}
       />
       <Tabs.Screen
@@ -50,6 +68,7 @@ export default function TabLayout() {
         options={{
           title: "Projects",
           tabBarIcon: ({ focused }) => icon("folder-outline", focused),
+          tabBarBadge: undefined,
         }}
       />
       <Tabs.Screen
@@ -57,6 +76,15 @@ export default function TabLayout() {
         options={{
           title: "Missions",
           tabBarIcon: ({ focused }) => icon("flag-outline", focused),
+          tabBarBadge: undefined,
+        }}
+      />
+      <Tabs.Screen
+        name="routines"
+        options={{
+          title: "Routines",
+          tabBarIcon: ({ focused }) => icon("repeat-outline", focused),
+          tabBarBadge: undefined,
         }}
       />
       <Tabs.Screen
@@ -64,6 +92,7 @@ export default function TabLayout() {
         options={{
           title: "Schedule",
           tabBarIcon: ({ focused }) => icon("calendar-outline", focused),
+          tabBarBadge: undefined,
         }}
       />
     </Tabs>

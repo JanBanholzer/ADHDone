@@ -28,7 +28,7 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>adhdone</string>
-				<string>com.adhdone.app</string>
+				<string>de.adhdone.www</string>
 			</array>
 		</dict>
 		<dict>

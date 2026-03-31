@@ -1,5 +1,5 @@
 import { supabase } from "./supabase";
-import type { Mission, Project, Quest, Task, Errand, CalendarEvent } from "./types";
+import type { Mission, Project, Quest, Task, Errand, Routine, RoutineItem, RoutineRun } from "./types";
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);
@@ -48,12 +48,28 @@ export async function updateMission(
   return data;
 }
 
+export async function deleteMission(id: string): Promise<void> {
+  const { error } = await supabase.from("missions").delete().eq("id", id);
+  if (error) throw error;
+}
+
 // ── Projects ────────────────────────────────────────────────
 
 export async function fetchProjects(): Promise<Project[]> {
   const { data, error } = await supabase
     .from("projects")
     .select("*, missions(id, title)")
+    .order("sort_order")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function fetchProjectsByMission(missionId: string): Promise<Project[]> {
+  const { data, error } = await supabase
+    .from("projects")
+    .select("*")
+    .eq("mission_id", missionId)
     .order("sort_order")
     .order("created_at", { ascending: false });
   if (error) throw error;
@@ -92,12 +108,39 @@ export async function updateProject(
   return data;
 }
 
+export async function deleteProject(id: string): Promise<void> {
+  const { error } = await supabase.from("projects").delete().eq("id", id);
+  if (error) throw error;
+}
+
 // ── Quests ──────────────────────────────────────────────────
 
 export async function fetchQuests(): Promise<Quest[]> {
   const { data, error } = await supabase
     .from("quests")
-    .select("*, projects(id, title, mission_id, missions(id, title))")
+    .select("*, projects(id, title, mission_id, missions(id, title)), missions(id, title)")
+    .order("sort_order")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function fetchQuestsByProject(projectId: string): Promise<Quest[]> {
+  const { data, error } = await supabase
+    .from("quests")
+    .select("*")
+    .eq("project_id", projectId)
+    .order("sort_order")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function fetchQuestsByMission(missionId: string): Promise<Quest[]> {
+  const { data, error } = await supabase
+    .from("quests")
+    .select("*")
+    .eq("mission_id", missionId)
     .order("sort_order")
     .order("created_at", { ascending: false });
   if (error) throw error;
@@ -105,16 +148,28 @@ export async function fetchQuests(): Promise<Quest[]> {
 }
 
 export async function createQuest(
-  fields: Pick<Quest, "title" | "project_id"> &
-    Partial<Pick<Quest, "description" | "status" | "target_date">>
+  fields: Pick<Quest, "title"> &
+    Partial<Pick<Quest, "description" | "status" | "target_date">> &
+    ({ project_id: string } | { mission_id: string })
 ): Promise<Quest> {
-  const { data, error } = await supabase
-    .from("quests")
-    .insert(fields)
-    .select()
-    .single();
+  const base = {
+    title: fields.title,
+    description: fields.description,
+    status: fields.status,
+    target_date: fields.target_date,
+  };
+  let row: Record<string, unknown>;
+  if ("project_id" in fields && fields.project_id) {
+    row = { ...base, project_id: fields.project_id, mission_id: null };
+  } else if ("mission_id" in fields && fields.mission_id) {
+    row = { ...base, project_id: null, mission_id: fields.mission_id };
+  } else {
+    throw new Error("Either project_id or mission_id is required");
+  }
+
+  const { data, error } = await supabase.from("quests").insert(row).select().single();
   if (error) throw error;
-  return data;
+  return data as Quest;
 }
 
 export async function updateQuest(
@@ -136,20 +191,27 @@ export async function updateQuest(
   return data;
 }
 
+export async function deleteQuest(id: string): Promise<void> {
+  const { error } = await supabase.from("quests").delete().eq("id", id);
+  if (error) throw error;
+}
+
 // ── Tasks ───────────────────────────────────────────────────
 
 export async function fetchTasks(opts?: {
   questId?: string;
+  missionId?: string;
   status?: string;
   dueDate?: string;
 }): Promise<Task[]> {
   let q = supabase
     .from("tasks")
     .select(
-      "*, quests(id, title, project_id, projects(id, title, mission_id, missions(id, title)))"
+      "*, quests(id, title, project_id, mission_id, projects(id, title, mission_id, missions(id, title)), missions(id, title)), missions(id, title)"
     );
 
   if (opts?.questId) q = q.eq("quest_id", opts.questId);
+  if (opts?.missionId) q = q.eq("mission_id", opts.missionId);
   if (opts?.status) q = q.eq("status", opts.status);
   if (opts?.dueDate) q = q.eq("due_date", opts.dueDate);
 
@@ -164,16 +226,33 @@ export async function fetchTasks(opts?: {
 }
 
 export async function createTask(
-  fields: Pick<Task, "title" | "quest_id" | "due_date"> &
-    Partial<Pick<Task, "description" | "notes" | "estimate_minutes">>
+  fields: Pick<Task, "title" | "due_date"> &
+    Partial<Pick<Task, "description" | "notes" | "estimate_minutes">> &
+    ({ quest_id: string; mission_id?: null } | { mission_id: string; quest_id?: null })
 ): Promise<Task> {
+  const base = {
+    title: fields.title,
+    due_date: fields.due_date,
+    description: fields.description,
+    notes: fields.notes,
+    estimate_minutes: fields.estimate_minutes,
+  };
+  let row: Record<string, unknown>;
+  if ("quest_id" in fields && fields.quest_id) {
+    row = { ...base, quest_id: fields.quest_id, mission_id: null };
+  } else if ("mission_id" in fields && fields.mission_id) {
+    row = { ...base, quest_id: null, mission_id: fields.mission_id };
+  } else {
+    throw new Error("Either quest_id or mission_id is required");
+  }
+
   const { data, error } = await supabase
     .from("tasks")
-    .insert(fields)
+    .insert(row)
     .select()
     .single();
   if (error) throw error;
-  return data;
+  return data as Task;
 }
 
 export async function updateTask(
@@ -252,6 +331,147 @@ export async function updateErrand(
   return data;
 }
 
+export async function deleteTask(id: string): Promise<void> {
+  const { error } = await supabase.from("tasks").delete().eq("id", id);
+  if (error) throw error;
+}
+
+export async function deleteErrand(id: string): Promise<void> {
+  const { error } = await supabase.from("errands").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// ── Routines (public.* — avoids non-exposed `routines` schema on hosted Supabase) ──
+
+export async function fetchRoutines(): Promise<Routine[]> {
+  const { data, error } = await supabase
+    .from("routines")
+    .select("*")
+    .order("sort_order")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as Routine[];
+}
+
+export async function createRoutine(
+  fields: Pick<Routine, "title"> &
+    Partial<
+      Pick<
+        Routine,
+        | "description"
+        | "enabled"
+        | "apply_as"
+        | "schedule_type"
+        | "schedule_anchor"
+        | "quest_title_template"
+        | "quest_description_template"
+        | "ai_prompt"
+        | "target_mission_id"
+      >
+    >
+): Promise<Routine> {
+  const { data, error } = await supabase
+    .from("routines")
+    .insert(fields)
+    .select()
+    .single();
+  if (error) throw error;
+  return data as Routine;
+}
+
+export async function updateRoutine(
+  id: string,
+  fields: Partial<Omit<Routine, "id">>
+): Promise<Routine> {
+  const { data, error } = await supabase
+    .from("routines")
+    .update(fields)
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data as Routine;
+}
+
+export async function deleteRoutine(id: string): Promise<void> {
+  const { error } = await supabase.from("routines").delete().eq("id", id);
+  if (error) throw error;
+}
+
+export async function fetchRoutineItems(routineId: string): Promise<RoutineItem[]> {
+  const { data, error } = await supabase
+    .from("routine_items")
+    .select("*")
+    .eq("routine_id", routineId)
+    .order("sort_order")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as RoutineItem[];
+}
+
+export async function createRoutineItem(
+  fields: Pick<RoutineItem, "routine_id" | "title"> &
+    Partial<Pick<RoutineItem, "notes" | "estimate_minutes">>
+): Promise<RoutineItem> {
+  const { data, error } = await supabase
+    .from("routine_items")
+    .insert(fields)
+    .select()
+    .single();
+  if (error) throw error;
+  return data as RoutineItem;
+}
+
+export async function updateRoutineItem(
+  id: string,
+  fields: Partial<Omit<RoutineItem, "id">>
+): Promise<RoutineItem> {
+  const { data, error } = await supabase
+    .from("routine_items")
+    .update(fields)
+    .eq("id", id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data as RoutineItem;
+}
+
+export async function deleteRoutineItem(id: string): Promise<void> {
+  const { error } = await supabase.from("routine_items").delete().eq("id", id);
+  if (error) throw error;
+}
+
+/**
+ * Applies a routine for the given date.
+ * Returns quest id in quest mode, or null in direct-task mode.
+ */
+export async function applyRoutine(
+  routineId: string,
+  targetDate: string,
+  questTitle?: string,
+  questDescription?: string
+): Promise<string | null> {
+  const { data, error } = await supabase.rpc("apply_routine_quest", {
+    p_routine_id: routineId,
+    p_target_date: targetDate,
+    p_quest_title: questTitle ?? null,
+    p_quest_description: questDescription ?? null,
+  });
+  if (error) throw error;
+  return (data as string | null) ?? null;
+}
+
+export async function fetchRoutineRuns(routineId: string): Promise<RoutineRun[]> {
+  const { data, error } = await supabase
+    .from("routine_runs")
+    .select("*")
+    .eq("routine_id", routineId)
+    .order("applied_at", { ascending: false })
+    .limit(20);
+  if (error) throw error;
+  return (data ?? []) as RoutineRun[];
+}
+
 // ── Schedule helpers ────────────────────────────────────────
 
 export async function fetchSchedule(date: string) {
@@ -301,18 +521,3 @@ export async function fetchOverdue() {
   };
 }
 
-// ── Calendar events ─────────────────────────────────────────
-
-export async function fetchCalendarEvents(date: string): Promise<CalendarEvent[]> {
-  const dayStart = date + "T00:00:00Z";
-  const dayEnd = date + "T23:59:59Z";
-
-  const { data, error } = await supabase
-    .from("calendar_events")
-    .select("*")
-    .or(`and(start_at.gte.${dayStart},start_at.lte.${dayEnd}),and(end_at.gte.${dayStart},end_at.lte.${dayEnd}),and(start_at.lte.${dayStart},end_at.gte.${dayEnd})`)
-    .order("start_at");
-
-  if (error) throw error;
-  return (data ?? []) as CalendarEvent[];
-}

@@ -16,7 +16,7 @@ const SYSTEM_PROMPT = `You are ADHDone, a personal productivity assistant inspir
 You manage a hierarchical task system:
 - Missions: highest-level long-term goals (status: active/accomplished/aborted)
 - Projects: medium-term work serving a mission (planned/active/completed/aborted)
-- Quests: finite plannable chunks within a project (planned/active/completed/aborted)
+- Quests: finite plannable chunks under a project OR directly under a mission (planned/active/completed/aborted)
 - Tasks: day-level actionable items with a due_date, linked to a quest (planned/done/skipped/aborted)
 - Errands: standalone day items NOT linked to quests (planned/done/skipped/aborted)
 - Resources: persistent knowledge base / notes / preferences
@@ -69,7 +69,8 @@ const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: "get_quests",
-    description: "Query quests with optional filters.",
+    description:
+      "Query quests with optional filters. Quests attach to either a project OR directly to a mission.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -78,6 +79,7 @@ const TOOLS: Anthropic.Tool[] = [
           enum: ["planned", "active", "completed", "aborted"],
         },
         project_id: { type: "string" },
+        mission_id: { type: "string" },
       },
     },
   },
@@ -182,16 +184,24 @@ const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: "create_quest",
-    description: "Create a new quest under a project.",
+    description:
+      "Create a new quest under a project OR directly under a mission (exactly one of project_id or mission_id).",
     input_schema: {
       type: "object" as const,
       properties: {
         title: { type: "string" },
-        project_id: { type: "string" },
+        project_id: {
+          type: "string",
+          description: "Link quest to this project",
+        },
+        mission_id: {
+          type: "string",
+          description: "Link quest to this mission only (no project)",
+        },
         description: { type: "string" },
         target_date: { type: "string", description: "YYYY-MM-DD" },
       },
-      required: ["title", "project_id"],
+      required: ["title"],
     },
   },
   {
@@ -370,7 +380,21 @@ async function executeTool(
         break;
       }
       case "create_quest": {
-        const r = await api.createQuest(args);
+        const pid = (args as Record<string, unknown>).project_id as
+          | string
+          | undefined;
+        const mid = (args as Record<string, unknown>).mission_id as
+          | string
+          | undefined;
+        if (!!pid === !!mid) {
+          throw new Error(
+            "create_quest: pass exactly one of project_id or mission_id",
+          );
+        }
+        const row = pid
+          ? { ...args, project_id: pid, mission_id: null }
+          : { ...args, project_id: null, mission_id: mid };
+        const r = await api.createQuest(row);
         result = r.data;
         break;
       }

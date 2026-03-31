@@ -66,7 +66,7 @@ export const getTasks = (filters: Record<string, string> = {}) => {
   let q = db
     .from("tasks")
     .select(
-      "*, quests(id, title, project_id, projects(id, title, mission_id, missions(id, title)))"
+      "*, quests(id, title, project_id, mission_id, projects(id, title, mission_id, missions(id, title)), missions(id, title))"
     );
   if (filters.status) q = q.eq("status", filters.status);
   if (filters.due_date) q = q.eq("due_date", filters.due_date);
@@ -126,9 +126,12 @@ export const updateErrand = (id: string, fields: Record<string, unknown>) => {
 export const getQuests = (filters: Record<string, string> = {}) => {
   let q = db
     .from("quests")
-    .select("*, projects(id, title, mission_id, missions(id, title))");
+    .select(
+      "*, projects(id, title, mission_id, missions(id, title)), missions(id, title)",
+    );
   if (filters.status) q = q.eq("status", filters.status);
   if (filters.project_id) q = q.eq("project_id", filters.project_id);
+  if (filters.mission_id) q = q.eq("mission_id", filters.mission_id);
   return q.order("sort_order");
 };
 

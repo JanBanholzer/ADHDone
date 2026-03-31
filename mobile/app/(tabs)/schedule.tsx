@@ -5,20 +5,26 @@ import {
   StyleSheet,
   RefreshControl,
   Alert,
-  Text,
 } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { Colors, Spacing } from "../../constants/theme";
-import { fetchSchedule, fetchOverdue, updateTask, updateErrand, fetchCalendarEvents } from "../../lib/api";
-import type { Task, Errand, CalendarEvent, SectionData } from "../../lib/types";
+import {
+  fetchSchedule,
+  fetchOverdue,
+  updateTask,
+  updateErrand,
+  deleteTask,
+  deleteErrand,
+} from "../../lib/api";
+import type { Task, Errand, SectionData } from "../../lib/types";
 import ItemCard from "../../components/ItemCard";
 import SectionHeader from "../../components/SectionHeader";
 import EmptyState from "../../components/EmptyState";
 import DayPicker from "../../components/DayPicker";
-import { syncCalendar } from "../../lib/calendar";
+import EntityDetailModal from "../../components/EntityDetailModal";
+import InactiveToggle from "../../components/InactiveToggle";
 
 type ScheduleItem = (Task | Errand) & { _kind: "task" | "errand" };
-type CalendarItem = CalendarEvent & { _kind: "calendar" };
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);
@@ -28,17 +34,15 @@ export default function ScheduleScreen() {
   const [selected, setSelected] = useState(today());
   const [items, setItems] = useState<ScheduleItem[]>([]);
   const [overdueItems, setOverdueItems] = useState<ScheduleItem[]>([]);
-  const [calendarItems, setCalendarItems] = useState<CalendarItem[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [selectedItem, setSelectedItem] = useState<ScheduleItem | null>(null);
+  const [showInactive, setShowInactive] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      await syncCalendar();
-      
-      const [schedule, overdue, calEvents] = await Promise.all([
+      const [schedule, overdue] = await Promise.all([
         fetchSchedule(selected),
         selected === today() ? fetchOverdue() : Promise.resolve({ tasks: [], errands: [] }),
-        fetchCalendarEvents(selected),
       ]);
 
       const dayItems: ScheduleItem[] = [
@@ -49,11 +53,8 @@ export default function ScheduleScreen() {
         ...overdue.tasks.map((t) => ({ ...t, _kind: "task" as const })),
         ...overdue.errands.map((e) => ({ ...e, _kind: "errand" as const })),
       ];
-      const calItems: CalendarItem[] = calEvents.map((c) => ({ ...c, _kind: "calendar" as const }));
-
       setItems(dayItems);
       setOverdueItems(oItems);
-      setCalendarItems(calItems);
     } catch (err: any) {
       Alert.alert("Error", err.message);
     }
@@ -85,9 +86,14 @@ export default function ScheduleScreen() {
     load();
   };
 
-  const sections: SectionData<ScheduleItem | CalendarItem>[] = [];
-  if (overdueItems.length > 0 && selected === today()) {
-    sections.push({ title: "Overdue", data: overdueItems });
+  const visibleItems = showInactive ? items : items.filter((i) => i.status === "planned");
+  const visibleOverdueItems = showInactive
+    ? overdueItems
+    : overdueItems.filter((i) => i.status === "planned");
+
+  const sections: SectionData<ScheduleItem>[] = [];
+  if (visibleOverdueItems.length > 0 && selected === today()) {
+    sections.push({ title: "Overdue", data: visibleOverdueItems });
   }
   const dateLabel =
     selected === today()
@@ -97,16 +103,17 @@ export default function ScheduleScreen() {
           month: "short",
           day: "numeric",
         });
-  if (calendarItems.length > 0) {
-    sections.push({ title: "Calendar", data: calendarItems });
-  }
-  if (items.length > 0) {
-    sections.push({ title: dateLabel, data: items });
+  if (visibleItems.length > 0) {
+    sections.push({ title: dateLabel, data: visibleItems });
   }
 
   return (
     <View style={styles.container}>
       <DayPicker selected={selected} onSelect={setSelected} />
+      <InactiveToggle
+        showInactive={showInactive}
+        onToggle={() => setShowInactive((prev) => !prev)}
+      />
 
       <SectionList
         sections={sections}
@@ -115,27 +122,6 @@ export default function ScheduleScreen() {
           <SectionHeader title={section.title} />
         )}
         renderItem={({ item }) => {
-          if (item._kind === "calendar") {
-            const cal = item as CalendarItem;
-            const startTime = new Date(cal.start_at).toLocaleTimeString("en-US", {
-              hour: "numeric",
-              minute: "2-digit",
-            });
-            const endTime = new Date(cal.end_at).toLocaleTimeString("en-US", {
-              hour: "numeric",
-              minute: "2-digit",
-            });
-            return (
-              <ItemCard
-                title={cal.title}
-                status="active"
-                subtitle={cal.location || cal.calendar_name}
-                dueDate={cal.is_all_day ? "All day" : `${startTime} - ${endTime}`}
-                showCheckbox={false}
-              />
-            );
-          }
-          
           const schedItem = item as ScheduleItem;
           return (
             <ItemCard
@@ -149,6 +135,7 @@ export default function ScheduleScreen() {
               dueDate={schedItem.due_date}
               showCheckbox
               onToggleDone={() => toggle(schedItem)}
+              onPress={() => setSelectedItem(schedItem)}
             />
           );
         }}
@@ -164,6 +151,35 @@ export default function ScheduleScreen() {
         }
         contentContainerStyle={styles.list}
         stickySectionHeadersEnabled={false}
+      />
+
+      <EntityDetailModal
+        visible={!!selectedItem}
+        kindLabel={selectedItem?._kind === "task" ? "Task" : "Errand"}
+        title={selectedItem?.title ?? ""}
+        description={selectedItem?.description}
+        notes={selectedItem?.notes}
+        onClose={() => setSelectedItem(null)}
+        onSave={async (payload) => {
+          if (!selectedItem) return;
+          if (selectedItem._kind === "task") {
+            await updateTask(selectedItem.id, payload);
+          } else {
+            await updateErrand(selectedItem.id, payload);
+          }
+          await load();
+          setSelectedItem(null);
+        }}
+        onDelete={async () => {
+          if (!selectedItem) return;
+          if (selectedItem._kind === "task") {
+            await deleteTask(selectedItem.id);
+          } else {
+            await deleteErrand(selectedItem.id);
+          }
+          await load();
+          setSelectedItem(null);
+        }}
       />
     </View>
   );

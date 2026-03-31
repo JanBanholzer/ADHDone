@@ -97,89 +97,10 @@ function flattenObservances(rows: any[]) {
   }));
 }
 
-function normalizeTitle(v: string): string {
-  return v.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
-}
-
-function isSameDay(aIso: string, bDate: string): boolean {
-  return aIso.slice(0, 10) === bDate;
-}
-
-function titlesLikelyMatch(a: string, b: string): boolean {
-  const na = normalizeTitle(a);
-  const nb = normalizeTitle(b);
-  if (!na || !nb) return false;
-  return na === nb || na.includes(nb) || nb.includes(na);
-}
-
-// OpenClaw should never rely on memory for conversion checks.
-// This annotates calendar events with whether corresponding tasks/errands already exist.
-function addCalendarTaskMatches(payload: Record<string, unknown>): Record<string, unknown> {
-  const calendarEvents = (payload.calendar_events as Array<Record<string, unknown>> | undefined) ?? [];
-  if (calendarEvents.length === 0) return payload;
-
-  const taskArrays = [
-    (payload.tasks_today as Array<Record<string, unknown>> | undefined) ?? [],
-    (payload.tasks_this_week as Array<Record<string, unknown>> | undefined) ?? [],
-    (payload.tasks_this_month as Array<Record<string, unknown>> | undefined) ?? [],
-    (payload.tasks_tomorrow as Array<Record<string, unknown>> | undefined) ?? [],
-    (payload.tasks_next_week as Array<Record<string, unknown>> | undefined) ?? [],
-    (payload.tasks_next_month as Array<Record<string, unknown>> | undefined) ?? [],
-  ].flat();
-  const errandArrays = [
-    (payload.errands_today as Array<Record<string, unknown>> | undefined) ?? [],
-    (payload.errands_this_week as Array<Record<string, unknown>> | undefined) ?? [],
-    (payload.errands_next_week as Array<Record<string, unknown>> | undefined) ?? [],
-    (payload.errands_next_month as Array<Record<string, unknown>> | undefined) ?? [],
-  ].flat();
-
-  const matches = calendarEvents.map((ev) => {
-    const eventTitle = String(ev.title ?? "");
-    const eventDate = String(ev.start_at ?? "").slice(0, 10);
-
-    const matchedTasks = taskArrays.filter((t) =>
-      isSameDay(String(t.due_date ?? ""), eventDate) &&
-      titlesLikelyMatch(String(t.title ?? ""), eventTitle)
-    );
-    const matchedErrands = errandArrays.filter((e) =>
-      isSameDay(String(e.due_date ?? ""), eventDate) &&
-      titlesLikelyMatch(String(e.title ?? ""), eventTitle)
-    );
-
-    return {
-      calendar_event_id: ev.id,
-      calendar_event_title: eventTitle,
-      calendar_event_start_at: ev.start_at,
-      has_corresponding_task_or_errand:
-        matchedTasks.length > 0 || matchedErrands.length > 0,
-      matching_tasks: matchedTasks.map((t) => ({
-        id: t.id,
-        title: t.title,
-        due_date: t.due_date,
-        status: t.status,
-      })),
-      matching_errands: matchedErrands.map((e) => ({
-        id: e.id,
-        title: e.title,
-        due_date: e.due_date,
-        status: e.status,
-      })),
-    };
-  });
-
-  return {
-    ...payload,
-    calendar_event_task_matches: matches,
-  };
-}
-
 // ── Data fetchers ───────────────────────────────────────────
 
 async function fetchDailyBriefingData(db: DB, today: string) {
-  const dayStart = today + "T00:00:00Z";
-  const dayEnd = today + "T23:59:59Z";
-  
-  const [liturgical, tasks, errands, quests, projects, missions, calendarEvents] =
+  const [liturgical, tasks, errands, quests, projects, missions] =
     await Promise.all([
       db
         .from("liturgical_observances")
@@ -188,7 +109,7 @@ async function fetchDailyBriefingData(db: DB, today: string) {
         .order("sort_order"),
       db
         .from("tasks")
-        .select("*, quests(id, title, project_id)")
+        .select("*, quests(id, title, project_id, mission_id)")
         .eq("due_date", today)
         .in("status", ["planned"])
         .order("sort_order"),
@@ -200,7 +121,9 @@ async function fetchDailyBriefingData(db: DB, today: string) {
         .order("sort_order"),
       db
         .from("quests")
-        .select("*, projects(id, title, mission_id)")
+        .select(
+          "*, projects(id, title, mission_id, missions(id, title)), missions(id, title)",
+        )
         .in("status", ["active"])
         .order("sort_order"),
       db
@@ -209,11 +132,6 @@ async function fetchDailyBriefingData(db: DB, today: string) {
         .in("status", ["active"])
         .order("sort_order"),
       db.from("missions").select("*").order("sort_order"),
-      db
-        .from("calendar_events")
-        .select("*")
-        .or(`and(start_at.gte.${dayStart},start_at.lte.${dayEnd}),and(end_at.gte.${dayStart},end_at.lte.${dayEnd}),and(start_at.lte.${dayStart},end_at.gte.${dayEnd})`)
-        .order("start_at"),
     ]);
 
   return {
@@ -221,7 +139,6 @@ async function fetchDailyBriefingData(db: DB, today: string) {
     evangelizo_saint_url: evangelizoSaintUrl(today),
     evangelizo_feast_url: evangelizoFeastUrl(today),
     liturgical_events: flattenObservances(liturgical.data ?? []),
-    calendar_events: calendarEvents.data ?? [],
     tasks_today: tasks.data ?? [],
     errands_today: errands.data ?? [],
     active_quests: quests.data ?? [],
@@ -231,10 +148,7 @@ async function fetchDailyBriefingData(db: DB, today: string) {
 }
 
 async function fetchDailyExamData(db: DB, today: string) {
-  const dayStart = today + "T00:00:00Z";
-  const dayEnd = today + "T23:59:59Z";
-  
-  const [tasks, errands, quests, projects, missions, calendarEvents] = await Promise.all([
+  const [tasks, errands, quests, projects, missions] = await Promise.all([
     db
       .from("tasks")
       .select("*, quests(id, title)")
@@ -243,7 +157,9 @@ async function fetchDailyExamData(db: DB, today: string) {
     db.from("errands").select("*").eq("due_date", today).order("sort_order"),
     db
       .from("quests")
-      .select("*, projects(id, title, mission_id)")
+      .select(
+          "*, projects(id, title, mission_id, missions(id, title)), missions(id, title)",
+        )
       .in("status", ["active"])
       .order("sort_order"),
     db
@@ -252,16 +168,10 @@ async function fetchDailyExamData(db: DB, today: string) {
       .in("status", ["active"])
       .order("sort_order"),
     db.from("missions").select("*").order("sort_order"),
-    db
-      .from("calendar_events")
-      .select("*")
-      .or(`and(start_at.gte.${dayStart},start_at.lte.${dayEnd}),and(end_at.gte.${dayStart},end_at.lte.${dayEnd}),and(start_at.lte.${dayStart},end_at.gte.${dayEnd})`)
-      .order("start_at"),
   ]);
 
   return {
     date: today,
-    calendar_events: calendarEvents.data ?? [],
     tasks_today: tasks.data ?? [],
     errands_today: errands.data ?? [],
     active_quests: quests.data ?? [],
@@ -272,10 +182,7 @@ async function fetchDailyExamData(db: DB, today: string) {
 
 async function fetchDailyDebriefData(db: DB, today: string) {
   const tomorrow = addDays(today, 1);
-  const dayStart = today + "T00:00:00Z";
-  const dayEnd = today + "T23:59:59Z";
-  
-  const [tasks, errands, tmrwTasks, tmrwErrands, overdueTasks, overdueErrands, calendarEvents] =
+  const [tasks, errands, tmrwTasks, tmrwErrands, overdueTasks, overdueErrands] =
     await Promise.all([
       db
         .from("tasks")
@@ -307,17 +214,11 @@ async function fetchDailyDebriefData(db: DB, today: string) {
         .lt("due_date", today)
         .eq("status", "planned")
         .order("due_date"),
-      db
-        .from("calendar_events")
-        .select("*")
-        .or(`and(start_at.gte.${dayStart},start_at.lte.${dayEnd}),and(end_at.gte.${dayStart},end_at.lte.${dayEnd}),and(start_at.lte.${dayStart},end_at.gte.${dayEnd})`)
-        .order("start_at"),
     ]);
 
   return {
     date: today,
     tomorrow,
-    calendar_events: calendarEvents.data ?? [],
     tasks_today: tasks.data ?? [],
     errands_today: errands.data ?? [],
     tasks_tomorrow: tmrwTasks.data ?? [],
@@ -329,10 +230,7 @@ async function fetchDailyDebriefData(db: DB, today: string) {
 
 async function fetchWeeklyBriefingData(db: DB, today: string) {
   const { start, end } = weekRange(today);
-  const weekStart = start + "T00:00:00Z";
-  const weekEnd = end + "T23:59:59Z";
-  
-  const [liturgical, tasks, errands, quests, projects, missions, calendarEvents] =
+  const [liturgical, tasks, errands, quests, projects, missions] =
     await Promise.all([
       db
         .from("liturgical_observances")
@@ -343,7 +241,7 @@ async function fetchWeeklyBriefingData(db: DB, today: string) {
         .order("sort_order"),
       db
         .from("tasks")
-        .select("*, quests(id, title, project_id)")
+        .select("*, quests(id, title, project_id, mission_id)")
         .gte("due_date", start)
         .lte("due_date", end)
         .in("status", ["planned"])
@@ -359,7 +257,9 @@ async function fetchWeeklyBriefingData(db: DB, today: string) {
         .order("sort_order"),
       db
         .from("quests")
-        .select("*, projects(id, title, mission_id)")
+        .select(
+          "*, projects(id, title, mission_id, missions(id, title)), missions(id, title)",
+        )
         .in("status", ["active"])
         .order("sort_order"),
       db
@@ -368,12 +268,6 @@ async function fetchWeeklyBriefingData(db: DB, today: string) {
         .in("status", ["active"])
         .order("sort_order"),
       db.from("missions").select("*").order("sort_order"),
-      db
-        .from("calendar_events")
-        .select("*")
-        .gte("start_at", weekStart)
-        .lte("start_at", weekEnd)
-        .order("start_at"),
     ]);
 
   return {
@@ -381,7 +275,6 @@ async function fetchWeeklyBriefingData(db: DB, today: string) {
     week_start: start,
     week_end: end,
     liturgical_events: flattenObservances(liturgical.data ?? []),
-    calendar_events: calendarEvents.data ?? [],
     tasks_this_week: tasks.data ?? [],
     errands_this_week: errands.data ?? [],
     active_quests: quests.data ?? [],
@@ -393,9 +286,6 @@ async function fetchWeeklyBriefingData(db: DB, today: string) {
 async function fetchWeeklyDebriefData(db: DB, today: string) {
   const { start, end } = weekRange(today);
   const next = nextWeekRange(today);
-  const weekStart = start + "T00:00:00Z";
-  const weekEnd = end + "T23:59:59Z";
-  
   const [
     tasks,
     errands,
@@ -406,7 +296,6 @@ async function fetchWeeklyDebriefData(db: DB, today: string) {
     nextErrands,
     overdueTasks,
     overdueErrands,
-    calendarEvents,
   ] = await Promise.all([
     db
       .from("tasks")
@@ -424,7 +313,9 @@ async function fetchWeeklyDebriefData(db: DB, today: string) {
       .order("sort_order"),
     db
       .from("quests")
-      .select("*, projects(id, title, mission_id)")
+      .select(
+          "*, projects(id, title, mission_id, missions(id, title)), missions(id, title)",
+        )
       .in("status", ["active"])
       .order("sort_order"),
     db
@@ -461,12 +352,6 @@ async function fetchWeeklyDebriefData(db: DB, today: string) {
       .lt("due_date", start)
       .eq("status", "planned")
       .order("due_date"),
-    db
-      .from("calendar_events")
-      .select("*")
-      .gte("start_at", weekStart)
-      .lte("start_at", weekEnd)
-      .order("start_at"),
   ]);
 
   return {
@@ -475,7 +360,6 @@ async function fetchWeeklyDebriefData(db: DB, today: string) {
     week_end: end,
     next_week_start: next.start,
     next_week_end: next.end,
-    calendar_events: calendarEvents.data ?? [],
     tasks_this_week: tasks.data ?? [],
     errands_this_week: errands.data ?? [],
     active_quests: quests.data ?? [],
@@ -491,10 +375,7 @@ async function fetchWeeklyDebriefData(db: DB, today: string) {
 async function fetchMonthlyBriefingData(db: DB, today: string) {
   const { start, end } = monthRange(today);
   const last = lastMonthRange(today);
-  const monthStart = start + "T00:00:00Z";
-  const monthEnd = end + "T23:59:59Z";
-  
-  const [liturgical, quests, projects, missions, lastCompletedTasks, lastCompletedQuests, calendarEvents] =
+  const [liturgical, quests, projects, missions, lastCompletedTasks, lastCompletedQuests] =
     await Promise.all([
       db
         .from("liturgical_observances")
@@ -505,7 +386,9 @@ async function fetchMonthlyBriefingData(db: DB, today: string) {
         .order("sort_order"),
       db
         .from("quests")
-        .select("*, projects(id, title, mission_id)")
+        .select(
+          "*, projects(id, title, mission_id, missions(id, title)), missions(id, title)",
+        )
         .in("status", ["active"])
         .order("sort_order"),
       db
@@ -523,16 +406,12 @@ async function fetchMonthlyBriefingData(db: DB, today: string) {
         .order("done_at", { ascending: false }),
       db
         .from("quests")
-        .select("*, projects(id, title, mission_id)")
+        .select(
+          "*, projects(id, title, mission_id, missions(id, title)), missions(id, title)",
+        )
         .eq("status", "completed")
         .gte("completed_at", last.start + "T00:00:00Z")
         .lte("completed_at", last.end + "T23:59:59Z"),
-      db
-        .from("calendar_events")
-        .select("*")
-        .gte("start_at", monthStart)
-        .lte("start_at", monthEnd)
-        .order("start_at"),
     ]);
 
   return {
@@ -542,7 +421,6 @@ async function fetchMonthlyBriefingData(db: DB, today: string) {
     last_month_start: last.start,
     last_month_end: last.end,
     liturgical_events: flattenObservances(liturgical.data ?? []),
-    calendar_events: calendarEvents.data ?? [],
     active_quests: quests.data ?? [],
     active_projects: projects.data ?? [],
     missions: missions.data ?? [],
@@ -554,9 +432,6 @@ async function fetchMonthlyBriefingData(db: DB, today: string) {
 async function fetchMonthlyDebriefData(db: DB, today: string) {
   const { start, end } = monthRange(today);
   const next = nextMonthRange(today);
-  const monthStart = start + "T00:00:00Z";
-  const monthEnd = end + "T23:59:59Z";
-  
   const [
     liturgical,
     completedQuests,
@@ -567,7 +442,6 @@ async function fetchMonthlyDebriefData(db: DB, today: string) {
     monthTasks,
     nextTasks,
     nextErrands,
-    calendarEvents,
   ] = await Promise.all([
     db
       .from("liturgical_observances")
@@ -578,7 +452,9 @@ async function fetchMonthlyDebriefData(db: DB, today: string) {
       .order("sort_order"),
     db
       .from("quests")
-      .select("*, projects(id, title, mission_id)")
+      .select(
+          "*, projects(id, title, mission_id, missions(id, title)), missions(id, title)",
+        )
       .eq("status", "completed")
       .gte("completed_at", start + "T00:00:00Z")
       .lte("completed_at", end + "T23:59:59Z"),
@@ -591,7 +467,9 @@ async function fetchMonthlyDebriefData(db: DB, today: string) {
     db.from("missions").select("*").order("sort_order"),
     db
       .from("quests")
-      .select("*, projects(id, title, mission_id)")
+      .select(
+          "*, projects(id, title, mission_id, missions(id, title)), missions(id, title)",
+        )
       .in("status", ["active"])
       .order("sort_order"),
     db
@@ -619,12 +497,6 @@ async function fetchMonthlyDebriefData(db: DB, today: string) {
       .lte("due_date", next.end)
       .in("status", ["planned"])
       .order("due_date"),
-    db
-      .from("calendar_events")
-      .select("*")
-      .gte("start_at", monthStart)
-      .lte("start_at", monthEnd)
-      .order("start_at"),
   ]);
 
   return {
@@ -634,7 +506,6 @@ async function fetchMonthlyDebriefData(db: DB, today: string) {
     next_month_start: next.start,
     next_month_end: next.end,
     liturgical_events: flattenObservances(liturgical.data ?? []),
-    calendar_events: calendarEvents.data ?? [],
     completed_quests_this_month: completedQuests.data ?? [],
     completed_projects_this_month: completedProjects.data ?? [],
     missions: missions.data ?? [],
@@ -725,7 +596,7 @@ Deno.serve(async (req) => {
     if (tplErr) return error(tplErr.message, 404);
 
     // Fetch live data
-    const data = addCalendarTaskMatches(await fetcher(db, today) as Record<string, unknown>);
+    const data = await fetcher(db, today);
 
     // Check combination rules from DB
     const { data: rules } = await db
@@ -752,7 +623,7 @@ Deno.serve(async (req) => {
           type: includeId,
           title: includeTemplate.data?.title,
           template: includeTemplate.data?.template,
-          data: addCalendarTaskMatches(includeData as Record<string, unknown>),
+          data: includeData,
         };
       }
     }

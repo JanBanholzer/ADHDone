@@ -18,7 +18,10 @@ export interface FieldDef {
   label: string;
   placeholder: string;
   required?: boolean;
+  /** When true the picker starts unselected and a chip can be deselected by tapping again. */
+  optional?: boolean;
   type?: "text" | "date" | "number" | "picker";
+  multiline?: boolean;
   options?: { label: string; value: string }[];
 }
 
@@ -45,7 +48,8 @@ export default function AddItemModal({
       const defaults: Record<string, string> = {};
       fields.forEach((f) => {
         if (f.type === "date") defaults[f.key] = new Date().toISOString().slice(0, 10);
-        if (f.options) defaults[f.key] = f.options[0]?.value ?? "";
+        if (f.options && !f.optional) defaults[f.key] = f.options[0]?.value ?? "";
+        if (f.options && f.optional) defaults[f.key] = "";
       });
       setValues(defaults);
     }
@@ -83,14 +87,10 @@ export default function AddItemModal({
             <Pressable onPress={onClose}>
               <Text style={styles.cancel}>Cancel</Text>
             </Pressable>
-            <Text style={styles.title}>{title}</Text>
-            <Pressable onPress={handleSubmit} disabled={submitting}>
-              <Text
-                style={[styles.save, submitting && { opacity: 0.4 }]}
-              >
-                {submitting ? "Saving…" : "Save"}
-              </Text>
-            </Pressable>
+            <Text style={styles.title} numberOfLines={1}>
+              {title}
+            </Text>
+            <View style={styles.headerSpacer} />
           </View>
 
           <ScrollView
@@ -109,7 +109,11 @@ export default function AddItemModal({
                     {f.options.map((opt) => (
                       <Pressable
                         key={opt.value}
-                        onPress={() => set(f.key, opt.value)}
+                        onPress={() =>
+                          f.optional && values[f.key] === opt.value
+                            ? set(f.key, "")
+                            : set(f.key, opt.value)
+                        }
                         style={[
                           styles.chip,
                           values[f.key] === opt.value && styles.chipActive,
@@ -131,18 +135,32 @@ export default function AddItemModal({
                 <View key={f.key} style={styles.fieldGroup}>
                   <Text style={styles.label}>{f.label}</Text>
                   <TextInput
-                    style={styles.input}
+                    style={[styles.input, f.multiline && styles.inputMultiline]}
                     value={values[f.key] ?? ""}
                     onChangeText={(v) => set(f.key, v)}
                     placeholder={f.placeholder}
                     placeholderTextColor={Colors.textTertiary}
                     keyboardType={f.type === "number" ? "numeric" : "default"}
                     autoCapitalize={f.type === "date" ? "none" : "sentences"}
+                    multiline={f.multiline}
+                    textAlignVertical={f.multiline ? "top" : "auto"}
                   />
                 </View>
               )
             )}
           </ScrollView>
+
+          <View style={styles.footer}>
+            <Pressable
+              onPress={handleSubmit}
+              disabled={submitting}
+              style={[styles.saveButton, submitting && styles.saveButtonDisabled]}
+            >
+              <Text style={styles.saveButtonText}>
+                {submitting ? "Saving…" : "Save"}
+              </Text>
+            </Pressable>
+          </View>
         </View>
       </KeyboardAvoidingView>
     </Modal>
@@ -159,7 +177,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.card,
     borderTopLeftRadius: Radius.xl,
     borderTopRightRadius: Radius.xl,
-    maxHeight: "85%",
+    maxHeight: "72%",
   },
   header: {
     flexDirection: "row",
@@ -171,9 +189,35 @@ const styles = StyleSheet.create({
     borderBottomColor: Colors.separator,
   },
   cancel: { fontSize: 16, color: Colors.textSecondary },
-  title: { fontSize: 17, fontWeight: "700", color: Colors.text },
-  save: { fontSize: 16, fontWeight: "600", color: Colors.accent },
+  headerSpacer: { width: 52 },
+  title: {
+    flex: 1,
+    textAlign: "center",
+    fontSize: 17,
+    fontWeight: "700",
+    color: Colors.text,
+    marginHorizontal: Spacing.sm,
+  },
   body: { padding: Spacing.lg },
+  footer: {
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.lg,
+    paddingTop: Spacing.sm,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Colors.separator,
+  },
+  saveButton: {
+    backgroundColor: Colors.accent,
+    borderRadius: Radius.sm,
+    paddingVertical: Spacing.md,
+    alignItems: "center",
+  },
+  saveButtonDisabled: { opacity: 0.5 },
+  saveButtonText: {
+    color: Colors.textInverse,
+    fontSize: 16,
+    fontWeight: "700",
+  },
   fieldGroup: { marginBottom: Spacing.xl },
   label: {
     fontSize: 13,
@@ -192,6 +236,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: Colors.text,
     backgroundColor: Colors.bg,
+  },
+  inputMultiline: {
+    minHeight: 90,
   },
   pickerRow: { flexDirection: "row" },
   chip: {

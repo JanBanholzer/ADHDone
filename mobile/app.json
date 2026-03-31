@@ -12,24 +12,24 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.adhdone.app"
+      "bundleIdentifier": "de.adhdone.www"
     },
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#F2F2F7"
       },
-      "package": "com.adhdone.app"
+      "package": "de.adhdone.www"
     },
     "plugins": [
       "expo-router",
-      "expo-secure-store",
-      [
-        "expo-calendar",
-        {
-          "calendarPermission": "ADHDone needs calendar access to sync your events with tasks and include them in daily briefings.",
-          "remindersPermission": false
-        }
-      ]
-    ]
+      "expo-secure-store"
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "364ce76c-871e-41f5-a9cf-a6bd9a5f2642"
+      }
+    },
+    "owner": "kaiserpanda"
   }
 }

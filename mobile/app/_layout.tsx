@@ -1,19 +1,20 @@
-import { useEffect } from "react";
+import "react-native-gesture-handler";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { syncCalendar } from "../lib/calendar";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { StyleSheet } from "react-native";
 
 export default function RootLayout() {
-  useEffect(() => {
-    syncCalendar();
-  }, []);
-
   return (
-    <>
+    <GestureHandlerRootView style={styles.root}>
       <StatusBar style="dark" />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(tabs)" />
       </Stack>
-    </>
+    </GestureHandlerRootView>
   );
 }
+
+const styles = StyleSheet.create({
+  root: { flex: 1 },
+});

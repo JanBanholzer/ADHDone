@@ -20,8 +20,10 @@ Deno.serve(async (req) => {
           const { data, error: e } = await db
             .from("tasks")
             .select(
-              `*, quests(id, title, project_id,
-                projects(id, title, mission_id, missions(id, title)))`,
+              `*, quests(id, title, project_id, mission_id,
+                projects(id, title, mission_id, missions(id, title)),
+                missions(id, title)),
+               missions(id, title)`,
             )
             .eq("id", id)
             .single();
@@ -31,10 +33,15 @@ Deno.serve(async (req) => {
 
         let query = db
           .from("tasks")
-          .select("*, quests(id, title, project_id)");
+          .select(
+            "*, quests(id, title, project_id, mission_id, missions(id, title)), missions(id, title)",
+          );
 
         const questId = url.searchParams.get("quest_id");
         if (questId) query = query.eq("quest_id", questId);
+
+        const missionId = url.searchParams.get("mission_id");
+        if (missionId) query = query.eq("mission_id", missionId);
 
         const status = url.searchParams.get("status");
         if (status) query = query.eq("status", status);
@@ -74,13 +81,20 @@ Deno.serve(async (req) => {
       case "POST": {
         const body = await req.json();
         if (!body.title?.trim()) return error("title is required");
-        if (!body.quest_id) return error("quest_id is required");
         if (!body.due_date) return error("due_date is required");
+
+        const hasQuest = !!body.quest_id;
+        const hasMission = !!body.mission_id;
+        if (!hasQuest && !hasMission)
+          return error("Either quest_id or mission_id is required");
+        if (hasQuest && hasMission)
+          return error("Provide quest_id or mission_id, not both");
 
         const { data, error: e } = await db
           .from("tasks")
           .insert({
-            quest_id: body.quest_id,
+            quest_id: hasQuest ? body.quest_id : null,
+            mission_id: hasMission ? body.mission_id : null,
             title: body.title,
             due_date: body.due_date,
             ...(body.description !== undefined && {

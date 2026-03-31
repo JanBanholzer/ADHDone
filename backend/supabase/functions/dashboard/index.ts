@@ -15,9 +15,6 @@ Deno.serve(async (req) => {
     .slice(0, 10);
 
   try {
-    const dayStart = today + "T00:00:00Z";
-    const dayEnd = today + "T23:59:59Z";
-    
     const [
       missionsRes,
       todayTasksRes,
@@ -28,7 +25,6 @@ Deno.serve(async (req) => {
       liturgicalRes,
       weekTasksRes,
       doneRecentRes,
-      calendarEventsRes,
     ] = await Promise.all([
       db
         .from("missions")
@@ -36,7 +32,7 @@ Deno.serve(async (req) => {
         .order("sort_order"),
       db
         .from("tasks")
-        .select("*, quests(id, title, project_id)")
+        .select("*, quests(id, title, project_id, mission_id)")
         .eq("due_date", today)
         .in("status", ["planned"])
         .order("sort_order"),
@@ -48,7 +44,7 @@ Deno.serve(async (req) => {
         .order("sort_order"),
       db
         .from("tasks")
-        .select("*, quests(id, title, project_id)")
+        .select("*, quests(id, title, project_id, mission_id)")
         .lt("due_date", today)
         .eq("status", "planned")
         .order("due_date"),
@@ -81,11 +77,6 @@ Deno.serve(async (req) => {
         .eq("status", "done")
         .gte("done_at", today + "T00:00:00Z")
         .order("done_at", { ascending: false }),
-      db
-        .from("calendar_events")
-        .select("*")
-        .or(`and(start_at.gte.${dayStart},start_at.lte.${dayEnd}),and(end_at.gte.${dayStart},end_at.lte.${dayEnd}),and(start_at.lte.${dayStart},end_at.gte.${dayEnd})`)
-        .order("start_at"),
     ]);
 
     const missions = missionsRes.data ?? [];
@@ -124,7 +115,6 @@ Deno.serve(async (req) => {
       due_reminders: remindersRes.data ?? [],
       week_ahead_tasks: weekTasksRes.data ?? [],
       completed_today: doneRecentRes.data ?? [],
-      calendar_events_today: calendarEventsRes.data ?? [],
       liturgical_today: (liturgicalRes.data ?? []).map((o) => ({
         date: o.observance_date,
         ...o.liturgical_events,

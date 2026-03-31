@@ -17,6 +17,7 @@ Deno.serve(async (req) => {
             .from("quests")
             .select(
               `*, projects(id, title, mission_id, missions(id, title)),
+               missions(id, title),
                tasks(id, title, status, due_date, sort_order)`,
             )
             .eq("id", id)
@@ -27,9 +28,13 @@ Deno.serve(async (req) => {
 
         let query = db
           .from("quests")
-          .select("*, projects(id, title, mission_id)");
+          .select(
+            "*, projects(id, title, mission_id, missions(id, title)), missions(id, title)",
+          );
         const projectId = url.searchParams.get("project_id");
         if (projectId) query = query.eq("project_id", projectId);
+        const missionId = url.searchParams.get("mission_id");
+        if (missionId) query = query.eq("mission_id", missionId);
         const status = url.searchParams.get("status");
         if (status) query = query.eq("status", status);
         query = query
@@ -46,12 +51,17 @@ Deno.serve(async (req) => {
       case "POST": {
         const body = await req.json();
         if (!body.title?.trim()) return error("title is required");
-        if (!body.project_id) return error("project_id is required");
+        const hasProject = !!body.project_id;
+        const hasMission = !!body.mission_id;
+        if (hasProject === hasMission) {
+          return error("Exactly one of project_id or mission_id is required");
+        }
 
         const { data, error: e } = await db
           .from("quests")
           .insert({
-            project_id: body.project_id,
+            project_id: hasProject ? body.project_id : null,
+            mission_id: hasMission ? body.mission_id : null,
             title: body.title,
             ...(body.description !== undefined && {
               description: body.description,
