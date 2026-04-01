@@ -2,7 +2,7 @@
   "expo": {
     "name": "ADHDone",
     "slug": "adhdone",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "scheme": "adhdone",
     "orientation": "portrait",
     "icon": "./assets/icon.png",

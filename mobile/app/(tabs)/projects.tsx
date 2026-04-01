@@ -25,6 +25,7 @@ import Fab from "../../components/Fab";
 import AddItemModal, { FieldDef } from "../../components/AddItemModal";
 import InactiveToggle from "../../components/InactiveToggle";
 import EntityDetailModal, { ChildItem } from "../../components/EntityDetailModal";
+import { useUsageTracking } from "../../lib/useUsageTracking";
 
 export default function ProjectsScreen() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -36,6 +37,7 @@ export default function ProjectsScreen() {
   const [childQuests, setChildQuests] = useState<ChildItem[]>([]);
   const [childrenLoading, setChildrenLoading] = useState(false);
   const [addQuestFor, setAddQuestFor] = useState<Project | null>(null);
+  const { recordUsage, sortByUsage, sortSectionsByUsage } = useUsageTracking("projects");
 
   const load = useCallback(async () => {
     try {
@@ -70,10 +72,15 @@ export default function ProjectsScreen() {
       if (!groups[missionTitle]) groups[missionTitle] = [];
       groups[missionTitle].push(p);
     }
-    return Object.entries(groups).map(([title, data]) => ({ title, data }));
+    const raw = Object.entries(groups).map(([title, data]) => ({
+      title,
+      data: sortByUsage(data),
+    }));
+    return sortSectionsByUsage(raw);
   })();
 
   const openProject = async (project: Project) => {
+    recordUsage(project.id);
     setSelectedProject(project);
     setChildQuests([]);
     setChildrenLoading(true);
@@ -185,6 +192,7 @@ export default function ProjectsScreen() {
         visible={!!selectedProject}
         kindLabel="Project"
         title={selectedProject?.title ?? ""}
+        status={selectedProject?.status}
         description={selectedProject?.description}
         childrenLabel="Quests"
         children={childQuests}
@@ -202,6 +210,13 @@ export default function ProjectsScreen() {
           await load();
           setSelectedProject(null);
         }}
+        onComplete={async () => {
+          if (!selectedProject) return;
+          await updateProject(selectedProject.id, { status: "completed" });
+          await load();
+          setSelectedProject(null);
+        }}
+        completeLabel="Mark Complete"
       />
     </View>
   );

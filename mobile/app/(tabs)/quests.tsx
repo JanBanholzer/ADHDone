@@ -26,6 +26,7 @@ import Fab from "../../components/Fab";
 import AddItemModal, { FieldDef } from "../../components/AddItemModal";
 import InactiveToggle from "../../components/InactiveToggle";
 import EntityDetailModal, { ChildItem } from "../../components/EntityDetailModal";
+import { useUsageTracking } from "../../lib/useUsageTracking";
 
 export default function QuestsScreen() {
   const [quests, setQuests] = useState<Quest[]>([]);
@@ -38,6 +39,7 @@ export default function QuestsScreen() {
   const [childTasks, setChildTasks] = useState<ChildItem[]>([]);
   const [childrenLoading, setChildrenLoading] = useState(false);
   const [addTaskFor, setAddTaskFor] = useState<Quest | null>(null);
+  const { recordUsage, sortByUsage, sortSectionsByUsage } = useUsageTracking("quests");
 
   const load = useCallback(async () => {
     try {
@@ -81,10 +83,15 @@ export default function QuestsScreen() {
       if (!groups[sectionTitle]) groups[sectionTitle] = [];
       groups[sectionTitle].push(q);
     }
-    return Object.entries(groups).map(([title, data]) => ({ title, data }));
+    const raw = Object.entries(groups).map(([title, data]) => ({
+      title,
+      data: sortByUsage(data),
+    }));
+    return sortSectionsByUsage(raw);
   })();
 
   const openQuest = async (quest: Quest) => {
+    recordUsage(quest.id);
     setSelectedQuest(quest);
     setChildTasks([]);
     setChildrenLoading(true);
@@ -228,6 +235,7 @@ export default function QuestsScreen() {
         visible={!!selectedQuest}
         kindLabel="Quest"
         title={selectedQuest?.title ?? ""}
+        status={selectedQuest?.status}
         description={selectedQuest?.description}
         childrenLabel="Tasks"
         children={childTasks}
@@ -245,6 +253,13 @@ export default function QuestsScreen() {
           await load();
           setSelectedQuest(null);
         }}
+        onComplete={async () => {
+          if (!selectedQuest) return;
+          await updateQuest(selectedQuest.id, { status: "completed" });
+          await load();
+          setSelectedQuest(null);
+        }}
+        completeLabel="Mark Complete"
       />
     </View>
   );

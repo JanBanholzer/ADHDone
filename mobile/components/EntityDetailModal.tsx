@@ -38,6 +38,7 @@ interface Props {
   visible: boolean;
   kindLabel: string;
   title: string;
+  status?: string;
   description?: string | null;
   notes?: string | null;
   childrenLabel?: string;
@@ -46,12 +47,19 @@ interface Props {
   onClose: () => void;
   onSave: (payload: { title: string; description?: string; notes?: string }) => Promise<void>;
   onDelete: () => Promise<void>;
+  /** Called when user taps the complete/accomplished button. */
+  onComplete?: () => Promise<void>;
+  /** Label for the complete button, e.g. "Mark Accomplished" or "Mark Complete". */
+  completeLabel?: string;
 }
+
+const TERMINAL_STATUSES = new Set(["completed", "accomplished", "aborted", "done", "skipped"]);
 
 export default function EntityDetailModal({
   visible,
   kindLabel,
   title,
+  status,
   description,
   notes,
   childrenLabel,
@@ -60,6 +68,8 @@ export default function EntityDetailModal({
   onClose,
   onSave,
   onDelete,
+  onComplete,
+  completeLabel = "Mark Complete",
 }: Props) {
   const [editing, setEditing] = useState(false);
   const [titleDraft, setTitleDraft] = useState(title ?? "");
@@ -94,6 +104,15 @@ export default function EntityDetailModal({
       { text: "Delete", style: "destructive", onPress: () => onDelete() },
     ]);
   };
+
+  const complete = () => {
+    Alert.alert(completeLabel, `Set this ${kindLabel.toLowerCase()} as done?`, [
+      { text: "Cancel", style: "cancel" },
+      { text: "Confirm", onPress: () => onComplete?.() },
+    ]);
+  };
+
+  const isTerminal = status ? TERMINAL_STATUSES.has(status) : false;
 
   const sortedChildren = children ? sortChildren(children) : [];
 
@@ -222,6 +241,12 @@ export default function EntityDetailModal({
 
           {/* Footer */}
           <View style={styles.footer}>
+            {onComplete && !isTerminal && (
+              <Pressable style={styles.completeButton} onPress={complete}>
+                <Ionicons name="checkmark-circle-outline" size={18} color={Colors.textInverse} style={styles.completeIcon} />
+                <Text style={styles.completeText}>{completeLabel}</Text>
+              </Pressable>
+            )}
             <Pressable style={styles.deleteButton} onPress={remove}>
               <Text style={styles.deleteText}>Delete</Text>
             </Pressable>
@@ -305,9 +330,21 @@ const styles = StyleSheet.create({
   childStatus: { fontSize: 12, color: Colors.textTertiary },
   footer: {
     padding: Spacing.lg,
+    gap: Spacing.sm,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: Colors.separator,
   },
+  completeButton: {
+    backgroundColor: Colors.success,
+    borderRadius: Radius.sm,
+    paddingVertical: Spacing.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: Spacing.xs,
+  },
+  completeIcon: { marginRight: 2 },
+  completeText: { color: Colors.textInverse, fontWeight: "700", fontSize: 15 },
   deleteButton: {
     backgroundColor: "#B42318",
     borderRadius: Radius.sm,

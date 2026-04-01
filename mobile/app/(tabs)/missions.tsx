@@ -167,6 +167,7 @@ export default function MissionsScreen() {
         visible={!!selectedMission}
         kindLabel="Mission"
         title={selectedMission?.title ?? ""}
+        status={selectedMission?.status}
         description={selectedMission?.description}
         childrenLabel="Projects"
         children={childProjects}
@@ -184,6 +185,13 @@ export default function MissionsScreen() {
           await load();
           setSelectedMission(null);
         }}
+        onComplete={async () => {
+          if (!selectedMission) return;
+          await updateMission(selectedMission.id, { status: "accomplished" });
+          await load();
+          setSelectedMission(null);
+        }}
+        completeLabel="Mark Accomplished"
       />
     </View>
   );
